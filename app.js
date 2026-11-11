@@ -43,7 +43,7 @@ function tourFor(req, mandate) {
     return {
       stepLabel: 'Tour complete',
       title: 'Guided tour',
-      text: 'The pass is revoked. Run the agent once more if you like: every item is now refused with the reason "Mandate has been revoked". That is the whole product: permission, checked before money moves, recorded, and revocable.',
+      text: 'The pass is revoked. Run the agent once more if you like: every item is now refused with the reason "This pass has been revoked". That is the whole product: permission, checked before money moves, recorded, and revocable.',
       nextHref: '/ledger',
       nextLabel: 'See the full ledger',
     };
@@ -128,7 +128,7 @@ app.post('/api/mandates', (req, res) => {
 
 app.get('/mandate/:id', (req, res) => {
   const mandate = db.mandates.find((m) => m.id === req.params.id);
-  if (!mandate) return res.status(404).send(pages.errorPage('Mandate not found.', paypalMode()));
+  if (!mandate) return res.status(404).send(pages.errorPage('Pass not found.', paypalMode()));
   res.send(
     pages.mandatePage({
       mandate,
@@ -151,13 +151,13 @@ function doRevoke(id) {
 
 app.post('/api/mandates/:id/revoke', (req, res) => {
   const mandate = doRevoke(req.params.id);
-  if (!mandate) return res.status(404).json({ error: 'Mandate not found' });
+  if (!mandate) return res.status(404).json({ error: 'Pass not found' });
   res.json({ mandate, status: mandateStatus(mandate) });
 });
 
 app.post('/mandates/:id/revoke', (req, res) => {
   const mandate = doRevoke(req.params.id);
-  if (!mandate) return res.status(404).send(pages.errorPage('Mandate not found.', paypalMode()));
+  if (!mandate) return res.status(404).send(pages.errorPage('Pass not found.', paypalMode()));
   const suffix = inTour(req) ? '?tour=1&step=done' : '';
   res.redirect(`/mandate/${mandate.id}${suffix}`);
 });
@@ -205,7 +205,7 @@ app.get('/api/catalog', (req, res) => res.json(CATALOG));
 app.post('/api/agent/run', async (req, res) => {
   const { mandateId, instruction } = req.body || {};
   const mandate = db.mandates.find((m) => m.id === mandateId);
-  if (!mandate) return res.status(404).json({ error: 'Mandate not found' });
+  if (!mandate) return res.status(404).json({ error: 'Pass not found' });
   if (!instruction || !String(instruction).trim())
     return res.status(400).json({ error: 'Give the agent an instruction first.' });
   try {

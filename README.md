@@ -1,4 +1,4 @@
-# Mandate
+# AuthPal
 
 **The permission slip for AI money.**
 
@@ -7,7 +7,7 @@ travel, paying for software. Payments were built for a person pressing a button,
 so there is no standard way to prove what the person actually allowed an agent
 to spend: how much, for what, from whom, and until when.
 
-Mandate fixes that. A person grants an agent a **signed, limited permission**
+AuthPal fixes that. A person grants an agent a **signed, limited permission**
 (a mandate): a cap per purchase, a cap per month, allowed categories, an
 optional payee allowlist, and an expiry date. Before any agent purchase, the
 payment is checked against the mandate. Inside the limits, it proceeds to
@@ -22,7 +22,7 @@ in a ledger, and the person can revoke the mandate instantly.
 ```
 server.js          Entry point. Listens on PORT (default 3100).
 app.js             Express routes (pages + JSON API).
-lib/mandate.js     Mandate creation, HMAC-signed tokens, the permission check.
+lib/mandate.js     Pass creation, HMAC-signed tokens, the permission check.
 lib/agent.js       Deterministic demo agent: fixed catalog, keyword intent
                    parsing, purchase plan, run report.
 lib/paypal.js      PayPal Orders API v2 (sandbox), or labeled demo mode.
@@ -108,7 +108,7 @@ the same steps manually:
 1. **Grant (about 20 seconds).** On `/grant`, keep the defaults: grantor
    "Jordan Rivera", agent "OfficeBot", **$100 per purchase, $500 per month**,
    categories "Office supplies, Electronics, Groceries", no payee allowlist,
-   30 days. Click **Sign and grant this mandate**. Point at the signed token:
+   30 days. Click **Sign and grant this pass**. Point at the signed token:
    the agent carries this pass, and tampering with it breaks the signature.
 2. **Agent buys inside the limits (about 40 seconds).** On `/agent`, click
    **Preset: Restock office (inside limits)**. The agent buys printer paper
@@ -121,9 +121,9 @@ the same steps manually:
 4. **Ledger (about 30 seconds).** On `/ledger`, show both runs side by side:
    allowances and the refusal, each with its plain-English reason and the
    running monthly total. This is the record a dispute gets settled from.
-5. **Revoke (about 30 seconds).** Back on the mandate pass page, click
+5. **Revoke (about 30 seconds).** Back on the pass page, click
    **Revoke instantly**, then run the agent once more: every item is now
-   refused with "Mandate has been revoked". Permission that cannot be taken
+   refused with "This pass has been revoked". Permission that cannot be taken
    back is not permission; this one can, instantly.
 
 Optional closer: call `POST /api/verify` with a tampered token and show the
