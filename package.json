@@ -1,0 +1,1 @@
+{"dependencies":{"express":"^4.21.2"},"description":"Mandate: the permission layer for AI agents that pay with PayPal. Signed, limited, revocable spending permission, checked before money moves.","engines":{"node":">=20"},"license":"MIT","main":"server.js","name":"mandate","scripts":{"start":"node server.js","test":"node --test"},"type":"commonjs","version":"1.0.0"}
