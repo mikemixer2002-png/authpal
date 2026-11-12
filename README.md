@@ -25,10 +25,13 @@ app.js             Express routes (pages + JSON API).
 lib/mandate.js     Pass creation, HMAC-signed tokens, the permission check.
 lib/agent.js       Deterministic demo agent: fixed catalog, keyword intent
                    parsing, purchase plan, run report.
+lib/mcp.js         Model Context Protocol endpoint (JSON-RPC 2.0): the same
+                   passes offered as tools to agent frameworks.
 lib/paypal.js      PayPal Orders API v2 (sandbox), or labeled demo mode.
 lib/pages.js       Server-rendered pages (inline CSS, no build step).
 lib/store.js       Tiny JSON-file store at data/db.json.
-test/              node:test unit tests for the mandate checks.
+test/              node:test tests for the checks, the pages, and the
+                   upgrade package (MCP, limited-use passes, capture).
 ```
 
 **Token format:** `base64url(JSON payload) + "." + base64url(HMAC-SHA256(payload, secret))`.
@@ -38,8 +41,10 @@ token and the signature check fails.
 
 **The check** (runs before every payment) verifies: signature valid, mandate
 exists, not revoked, not expired, amount within the per-purchase cap,
-amount + this month's completed payments within the monthly cap, category in
-the allowlist (case-insensitive), payee in the allowlist when one is set.
+amount + this month's completed payments within the monthly cap, fewer
+completed purchases this month than the pass's purchase limit when one is
+set, category in the allowlist (case-insensitive), payee in the allowlist
+when one is set.
 
 **Data:** state lives in `data/db.json` (`{ mandates: [], ledger: [] }`),
 created on first write. Delete it to reset the demo.
@@ -83,10 +88,51 @@ PAYPAL_CLIENT_ID=... PAYPAL_CLIENT_SECRET=... npm start
 
 Payments then use the Orders API v2 against `https://api-m.sandbox.paypal.com`:
 an order is created with intent CAPTURE and a capture is attempted
-server-side. A fresh order normally needs buyer approval before capture, so
-when capture is refused the created order stands as the payment proof and the
-ledger entry is marked `order_created`. **Credentials are never hardcoded**;
-they are read from the environment only.
+server-side. A fresh order normally needs buyer approval first, so the
+created order also returns its PayPal approval link. The pass page and the
+ledger offer that link as "Approve in PayPal"; once the buyer has approved,
+`POST /api/orders/:orderId/capture` completes the payment and the ledger
+entry becomes `captured`. Until then the created order stands as the payment
+proof and the entry is marked `order_created`. If a capture is attempted
+before approval, it fails with a clear reason instead of an error page.
+**Credentials are never hardcoded**; they are read from the environment only.
+
+## Limited-use passes
+
+A pass may also carry a purchase limit, set with the optional `maxUses`
+field at grant time. Set it to 1 and the pass is single-use; set it higher
+and the pass allows that many purchases per month. Only completed payments
+count toward the limit: a check that was refused, or a verify call that
+never became a payment, never consumes a use. Once the limit is reached,
+later purchases are refused with the reason written out, for example
+"This pass was single-use and has already been used". Passes granted without
+the field have no purchase limit, and tokens issued before this field
+existed still verify exactly as before.
+
+## Seller check
+
+A pass is not tied to this one app. Any seller who is handed a pass token
+can confirm it before accepting an agent's order, on the seller check page
+at `/seller`: paste the token, enter the amount, category, and seller name,
+and the signature and limits are checked on the spot. The page is backed by
+`POST /api/verify`, the same check the agent itself goes through, and a
+check never charges anything.
+
+## MCP server
+
+AuthPal also speaks the Model Context Protocol, so an agent framework does
+not need this website at all. `POST /mcp` accepts JSON-RPC 2.0
+(`initialize`, `tools/list`, `tools/call`, `ping`) and offers four tools:
+
+| Tool             | What it does                                                                |
+| ---------------- | --------------------------------------------------------------------------- |
+| `grant_pass`     | Create a pass (same inputs as `POST /api/mandates`). Returns the signed token. |
+| `check_purchase` | Run the permission check and record it in the ledger. Never moves money.    |
+| `pay_with_pass`  | Run the check; when allowed, pay through PayPal. Refusals never reach PayPal. |
+| `revoke_pass`    | Revoke a pass immediately.                                                  |
+
+The endpoint is stateless, and the same checks apply as everywhere else:
+the tools are another door into the pass, not a way around it.
 
 ## Tests
 
@@ -98,7 +144,10 @@ Unit tests (node:test) cover: happy path allowed; tampered signature rejected
 (both signature and payload tampering); over per-purchase cap refused; monthly
 cap accumulation refused (and that unpaid checks do not eat the cap); wrong
 category refused; payee allowlist enforced; expired refused; revoked refused;
-and the agent's catalog planning.
+and the agent's catalog planning. A second suite covers the upgrade package:
+limited-use passes (including that old tokens still verify), the MCP tool
+round trip over HTTP (grant, check, pay, revoke), the seller page, and the
+capture route's errors.
 
 ## Demo walkthrough (the 3-minute script)
 
@@ -134,11 +183,14 @@ purchase, proving the caps accumulate.
 
 | Route                          | What it does                                                        |
 | ------------------------------ | ------------------------------------------------------------------- |
-| `POST /api/mandates`           | Create a mandate (JSON). Fields: `grantorName`, `agentLabel`, `perTxCap`, `monthlyCap`, `categories`, `payees`, `expiryDays`. |
+| `POST /api/mandates`           | Create a mandate (JSON). Fields: `grantorName`, `agentLabel`, `perTxCap`, `monthlyCap`, `categories`, `payees`, `expiryDays`, `maxUses` (optional). |
 | `GET /mandate/:id`             | The pass page: limits, signed token, status, revoke button.         |
 | `POST /api/mandates/:id/revoke`| Revoke a mandate instantly.                                         |
 | `POST /api/verify`             | Check `{ token, amount, category, payee }` → `{ allowed, reasons }`. Writes a ledger entry. |
 | `POST /api/agent/run`          | Run the demo agent with `{ mandateId, instruction }`.               |
+| `GET /seller`                  | The seller check page: any seller can verify a pass before accepting an order. |
+| `POST /api/orders/:orderId/capture` | Capture an approved PayPal order and mark its ledger entry `captured`. |
+| `POST /mcp`                    | MCP endpoint (JSON-RPC 2.0): `grant_pass`, `check_purchase`, `pay_with_pass`, `revoke_pass`. |
 | `GET /ledger`, `GET /api/ledger` | The ledger page / JSON.                                           |
 
 ## License

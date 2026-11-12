@@ -8,10 +8,12 @@ const {
   checkMandate,
   mandateStatus,
   spentThisMonth,
+  paidUsesThisMonth,
   PAID_STATUSES,
 } = require('./lib/mandate');
 const paypal = require('./lib/paypal');
 const { CATALOG, runAgent } = require('./lib/agent');
+const { handleMcp } = require('./lib/mcp');
 const pages = require('./lib/pages');
 
 const app = express();
@@ -31,7 +33,7 @@ function tourFor(req, mandate) {
     return {
       stepLabel: 'Step 1 of 5 · Grant',
       title: 'Guided tour',
-      text: 'Set the lines for the office pass and press "Sign and grant this mandate". The defaults are the tour setup: $100 per purchase, $500 per month.',
+      text: 'Set the lines for the office pass and press "Sign and grant this pass". The defaults are the tour setup: $100 per purchase, $500 per month.',
     };
   if (req.path.startsWith('/mandate/') && step === '5')
     return {
@@ -134,6 +136,10 @@ app.get('/mandate/:id', (req, res) => {
       mandate,
       status: mandateStatus(mandate),
       spent: spentThisMonth(db, mandate.id),
+      uses: paidUsesThisMonth(db, mandate.id),
+      pendingOrders: db.ledger.filter(
+        (e) => e.mandateId === mandate.id && e.paymentStatus === 'order_created'
+      ),
       paypalMode: paypalMode(),
       tour: tourFor(req, mandate),
     })
@@ -182,6 +188,7 @@ app.post('/api/verify', (req, res) => {
     paymentDetail: check.allowed
       ? 'Check passed. No payment was made by /api/verify.'
       : null,
+    approveUrl: null,
   };
   db.ledger.push(entry);
   store.save(db);
@@ -213,6 +220,44 @@ app.post('/api/agent/run', async (req, res) => {
     res.json(outcome);
   } catch (err) {
     res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+// ---------- Seller check ----------
+app.get('/seller', (req, res) => {
+  res.send(pages.sellerPage({ paypalMode: paypalMode() }));
+});
+
+// ---------- PayPal capture ----------
+// Completes a payment for an order the buyer has approved in PayPal.
+app.post('/api/orders/:orderId/capture', async (req, res) => {
+  const entry = db.ledger
+    .slice()
+    .reverse()
+    .find((e) => e.paypalOrderId === req.params.orderId);
+  if (!entry) return res.status(404).json({ error: 'No ledger entry found for that order' });
+  const result = await paypal.captureOrder(req.params.orderId);
+  if (!result.ok) return res.status(422).json({ error: result.error });
+  entry.paymentStatus = 'captured';
+  entry.paymentDetail = result.detail;
+  store.save(db);
+  res.json({ captured: true, entry });
+});
+
+// ---------- MCP ----------
+// Model Context Protocol over JSON-RPC 2.0: the same passes, the same
+// checks, offered as tools to any MCP-compatible agent.
+app.post('/mcp', async (req, res) => {
+  try {
+    const out = await handleMcp({ db, revoke: doRevoke }, req.body);
+    if (out === null) return res.status(202).end();
+    res.json(out);
+  } catch (err) {
+    res.status(500).json({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32603, message: String(err.message || err) },
+    });
   }
 });
 
